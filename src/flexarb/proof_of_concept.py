@@ -6,169 +6,59 @@ missing.
 Used shortcuts just to test the basic idea.
 """
 
-from linopy import LinearExpression, Model, Variable
+from linopy import Model, Variable
 
-
-class Port:
-    """Represent a single port where a link can be added."""
-
-    def __init__(self, model: Model, name: str, capacity_kwh: float):
-        self.model = model
-        self.name = name
-        self.capacity_kwh = capacity_kwh
-        self.var_used_capacity_kwh = self.add_variables()
-
-    def __str__(self) -> str:
-        return f"Port: {self.name}"
-
-    def __repr__(self) -> str:
-        return self.__str__()
-
-    def add_variables(self) -> Variable:
-        return self.model.add_variables(
-            lower=0, upper=self.capacity_kwh, name=f"{self.__str__()}_used_capacity_kwh"
-        )
-
-
-class Country:
-    """Represent a single country."""
-
-    def __init__(
-        self,
-        model: Model,
-        name: str,
-        price_buy_per_kwh: float,
-        price_sell_per_kwh: float,
-        capacity_export_kwh: float,
-        capacity_import_kwh: float,
-    ):
-        """Setup the Country"""
-        self.model = model
-        self.name = name
-        self.price_buy_per_kwh = price_buy_per_kwh
-        self.price_sell_per_kwh = price_sell_per_kwh
-        self.capacity_export_kwh = capacity_export_kwh
-        self.capacity_import_kwh = capacity_import_kwh
-
-        self.port_import = Port(
-            model=model,
-            name=f"{self.__str__()}_import",
-            capacity_kwh=self.capacity_import_kwh,
-        )
-        self.port_export = Port(
-            model=model,
-            name=f"{self.__str__()}_export",
-            capacity_kwh=self.capacity_export_kwh,
-        )
-        self.var_buy_kwh, self.var_sell_kwh = self.add_variables()
-        self.add_constraints()
-
-    def __str__(self) -> str:
-        return f"Country: {self.name}"
-
-    def __repr__(self) -> str:
-        return self.__str__()
-
-    def add_variables(self) -> tuple[Variable, Variable]:
-        var_buy_kwh = self.model.add_variables(
-            lower=0, upper=self.capacity_import_kwh, name=f"{self.__str__()}_buy_kwh"
-        )
-        var_sell_kwh = self.model.add_variables(
-            lower=0, upper=self.capacity_export_kwh, name=f"{self.__str__()}_sell_kwh"
-        )
-        return var_buy_kwh, var_sell_kwh
-
-    def add_constraints(self):
-        # energy which is sold needs to flow into the export port
-        self.model.add_constraints(
-            self.var_sell_kwh == self.port_export.var_used_capacity_kwh
-        )
-        # energy which is bought needs to flow into the import port
-        self.model.add_constraints(
-            self.var_buy_kwh == self.port_import.var_used_capacity_kwh
-        )
-
-    def get_cost(self) -> LinearExpression:
-        return (
-            -1 * self.price_sell_per_kwh * self.var_sell_kwh
-            + self.price_buy_per_kwh * self.var_buy_kwh
-        )
-
-
-class Link:
-    """Represent a link between two countries with a given direction."""
-
-    def __init__(
-        self,
-        model: Model,
-        name: str,
-        source_object: Country,
-        source_port: Port,
-        target_object: Country,
-        target_port: Port,
-        price_transport_per_kwh: float,
-        available_kwh: float,
-    ):
-        self.model = model
-        self.name = name
-        self.source_object = source_object
-        self.source_port = source_port
-        self.target_object = target_object
-        self.target_port = target_port
-        self.price_transport_per_kwh = price_transport_per_kwh
-        self.available_kwh = available_kwh
-
-        self.var_transport_kwh = self.add_variables()
-        self.add_constraints()
-
-    def __str__(self) -> str:
-        return f"Link from {self.source_object.name} to {self.target_object.name}"
-
-    def __repr__(self) -> str:
-        return self.__str__()
-
-    def add_variables(self) -> Variable:
-        return self.model.add_variables(
-            lower=0,
-            upper=self.available_kwh,
-            name=f"{self.__str__()}",
-        )
-
-    def add_constraints(self):
-        # energy flow from source port must match energy from target port
-        self.model.add_constraints(
-            self.source_port.var_used_capacity_kwh
-            == self.target_port.var_used_capacity_kwh
-        )
-        # energy flow from source port must match the energy transported
-        # together with the above constraint it makes sure that
-        # transport equals target port
-        self.model.add_constraints(
-            self.source_port.var_used_capacity_kwh == self.var_transport_kwh
-        )
-
-    def get_cost(self) -> LinearExpression:
-        return -1 * self.var_transport_kwh * self.price_transport_per_kwh
-
+from flexarb.components.country import Country
+from flexarb.components.orderbook import OrderBook, Supply
 
 if __name__ == "__main__":
     model = Model()
 
+    order_book_germany = OrderBook(
+        supplies=[
+            Supply(power_supply_kwh=400, price_per_kwh=0.005),
+            Supply(power_supply_kwh=1000, price_per_kwh=0.01),
+            Supply(power_supply_kwh=100, price_per_kwh=0.02),
+            Supply(power_supply_kwh=5000, price_per_kwh=0.06),
+        ]
+    )
+
     germany = Country(
         model=model,
         name="Germany",
-        price_buy_per_kwh=0.401,
-        price_sell_per_kwh=0.395,
-        capacity_export_kwh=1234,
-        capacity_import_kwh=456,
+        power_demand_kwh=1500,
+        order_book=order_book_germany,
     )
+
+    """
+    germany_austria_port = germany.add_port(
+        name="connection_from_germany_to_austria",
+        capacity_import_kwh=100,
+        capacity_export_kwh=200,
+    )
+    """
+
+    order_book_austria = OrderBook(
+        supplies=[
+            Supply(power_supply_kwh=100, price_per_kwh=0.01),
+            Supply(power_supply_kwh=5000, price_per_kwh=0.02),
+            Supply(power_supply_kwh=6000, price_per_kwh=0.05),
+            Supply(power_supply_kwh=5000, price_per_kwh=0.1),
+        ]
+    )
+
     austria = Country(
         model=model,
         name="Austria",
-        price_buy_per_kwh=0.280,
-        price_sell_per_kwh=0.275,
-        capacity_export_kwh=789,
-        capacity_import_kwh=987,
+        power_demand_kwh=900,
+        order_book=order_book_austria,
+    )
+
+    """
+    austria_germany_port = austria.add_port(
+        name="connection_from_austria_to_germany",
+        capacity_import_kwh=900,
+        capacity_export_kwh=1200,
     )
 
     all_countries: list[Country] = [
@@ -176,34 +66,28 @@ if __name__ == "__main__":
         austria,
     ]
 
-    link_germany_to_austria = Link(
+    link_between_germany_and_austria = Link(
         model=model,
         name="germany_to_austria",
         source_object=germany,
-        source_port=germany.port_export,
+        source_port=germany_austria_port,
         target_object=austria,
-        target_port=austria.port_import,
+        target_port=austria_germany_port,
         price_transport_per_kwh=0.01,
         available_kwh=50000,
     )
+    """
+    germany.add_variables()
+    austria.add_variables()
+    germany.add_constraints()
+    austria.add_constraints()
 
-    link_austria_to_germany = Link(
-        model=model,
-        name="austria_to_germany",
-        source_object=austria,
-        source_port=austria.port_export,
-        target_object=germany,
-        target_port=germany.port_import,
-        price_transport_per_kwh=0.015,
-        available_kwh=40000,
-    )
-
+    """
     all_links = [
-        link_germany_to_austria,
-        link_austria_to_germany,
+        link_between_germany_and_austria,
     ]
-
-    all_objects = [*all_countries, *all_links]
+    """
+    all_objects = [germany, austria]
 
     all_costs = [obj.get_cost() for obj in all_objects]
 
@@ -213,13 +97,11 @@ if __name__ == "__main__":
     )
     model.solve(solver_name="highs")
 
-    # extra all vars
     all_vars: list[Variable] = []
-    for country in all_countries:
-        all_vars.append(country.var_buy_kwh)
-        all_vars.append(country.var_sell_kwh)
-    for link in all_links:
-        all_vars.append(link.var_transport_kwh)
+    for country in all_objects:
+        print(country.name, country.power_demand_kwh)
+        all_vars.extend(list(country.ports_vars.values()))
+        all_vars.extend(list(country.order_book_vars.values()))
 
     for var in all_vars:
         print(var, var.solution)
